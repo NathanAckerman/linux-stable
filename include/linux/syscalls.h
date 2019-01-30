@@ -11,6 +11,10 @@
 #ifndef _LINUX_SYSCALLS_H
 #define _LINUX_SYSCALLS_H
 
+/*cntr*/
+#include <../../cntr/CntrDef.h>
+/*end cntr*/
+
 struct epoll_event;
 struct iattr;
 struct inode;
@@ -902,5 +906,9 @@ asmlinkage long sys_pkey_mprotect(unsigned long start, size_t len,
 				  unsigned long prot, int pkey);
 asmlinkage long sys_pkey_alloc(unsigned long flags, unsigned long init_val);
 asmlinkage long sys_pkey_free(int pkey);
+
+/*cntr*/
+asmlinkage long sys_balance_cntr(struct Pid_and_wasted_cycles worst_procs_all_cpus[][HISTORY_SIZE_CNTR]);
+/*cntr END*/
 
 #endif

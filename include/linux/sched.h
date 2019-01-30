@@ -62,6 +62,9 @@ struct sched_param {
 
 #include <asm/processor.h>
 
+//cntr
+#include "../../cntr/CntrDef.h"
+//cntr END
 #define SCHED_ATTR_SIZE_VER0	48	/* sizeof first published struct */
 
 /*
@@ -351,6 +354,10 @@ struct task_struct;
 #ifdef CONFIG_PROVE_RCU
 extern int lockdep_tasklist_lock_is_held(void);
 #endif /* #ifdef CONFIG_PROVE_RCU */
+
+//cntr
+extern void cntr_balance(void);
+//cntr END
 
 extern void sched_init(void);
 extern void sched_init_smp(void);
@@ -2002,6 +2009,15 @@ struct task_struct {
 	/* A live task holds one reference. */
 	atomic_t stack_refcount;
 #endif
+
+	//cntr
+	long avg_wasted_cycles;
+	//saved variables are used when task goes on and off cpu
+	//to calculate the total of the counters that were used
+	long long cpu_cycles_saved;
+	long long cpu_instructions_saved;
+	//cntr END
+	
 /* CPU-specific state of this task */
 	struct thread_struct thread;
 /*

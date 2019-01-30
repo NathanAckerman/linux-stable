@@ -1516,6 +1516,13 @@ static __latent_entropy struct task_struct *copy_process(
 	if (!p)
 		goto fork_out;
 
+	//cntr
+	//added members of the task struct need to be initialized
+	p->avg_wasted_cycles = 0;
+	p->cpu_cycles_saved = 0;
+	p->cpu_instructions_saved = 0;
+	//cntr END
+	
 	ftrace_graph_init_task(p);
 
 	rt_mutex_init_task(p);

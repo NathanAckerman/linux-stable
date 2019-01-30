@@ -34,6 +34,9 @@
 #include <trace/events/sched.h>
 
 #include "sched.h"
+//cntr
+#include "../../cntr/CntrDef.h"
+//cntr end
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -6004,6 +6007,11 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
  */
 static void migrate_task_rq_fair(struct task_struct *p)
 {
+
+	//cntr
+	remove_task_from_worst_procs(p);
+	//cntr end
+
 	/*
 	 * As blocked tasks retain absolute vruntime the migration needs to
 	 * deal with this by subtracting the old and adding the new
@@ -6048,6 +6056,9 @@ static void migrate_task_rq_fair(struct task_struct *p)
 
 static void task_dead_fair(struct task_struct *p)
 {
+	//cntr
+	remove_task_from_worst_procs(p);
+	//cntr END
 	remove_entity_load_avg(&p->se);
 }
 #endif /* CONFIG_SMP */

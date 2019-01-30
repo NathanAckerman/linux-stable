@@ -16,6 +16,10 @@
 #include "cpudeadline.h"
 #include "cpuacct.h"
 
+//cntr
+#include "../../cntr/CntrDef.h"
+//cntr END
+
 #ifdef CONFIG_SCHED_DEBUG
 #define SCHED_WARN_ON(x)	WARN_ONCE(x, #x)
 #else
@@ -594,6 +598,14 @@ extern struct root_domain def_root_domain;
  * acquire operations must be ordered by ascending &runqueue.
  */
 struct rq {
+
+	//cntr
+	struct Pid_and_wasted_cycles worst_procs[HISTORY_SIZE_CNTR];
+	//long avg_wasted_cycles;
+	u64 last_rebalance; // the time of the last rebalance (only affects cpu 0 which does the balancing)//no longer used
+	long long total_wasted_cycles;//total wasted cycles of all the worst procs, updated at balance time
+	//cntr END
+
 	/* runqueue lock: */
 	raw_spinlock_t lock;
 
@@ -1824,3 +1836,32 @@ static inline void cpufreq_update_this_cpu(struct rq *rq, unsigned int flags) {}
 #else /* arch_scale_freq_capacity */
 #define arch_scale_freq_invariant()	(false)
 #endif
+
+//cntr
+#ifndef _CNTR_REMOVER_
+#define _CNTR_REMOVER_
+//if the task is in the worst procs for a rq, remove it on delete or cpu switch
+static void remove_task_from_worst_procs(struct task_struct *p){
+	int i;
+	struct rq *the_rq = task_rq(p);
+	for(i = 0; i < HISTORY_SIZE_CNTR; i++){
+		if(the_rq->worst_procs[i].pid == p->pid){
+			the_rq->worst_procs[i].pid = -1;
+			the_rq->worst_procs[i].wasted_cycles = -1;
+			break;
+		}
+	}
+}
+
+static void remove_task_from_worst_procs_given_rq(pid_t the_pid, struct rq *the_rq){
+	int i;
+	for(i = 0; i < HISTORY_SIZE_CNTR; i++){
+		if(the_rq->worst_procs[i].pid == the_pid){
+			the_rq->worst_procs[i].pid = -1;
+			the_rq->worst_procs[i].wasted_cycles = -1;
+			break;
+		}
+	}
+}
+#endif
+//cntr END

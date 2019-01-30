@@ -322,6 +322,29 @@ void play_idle(unsigned long duration_ms)
 }
 EXPORT_SYMBOL_GPL(play_idle);
 
+//cntr
+//enables called on each cpu and enables performance counters
+//done here and not in startup so that they run whenever a cpu wakes up
+//counter can then be read from 0xc1 w/ rdmsr
+void enable_instruction_counter(void *info)
+{
+  	unsigned a, c;
+ 	printk(KERN_INFO "cntr wrmsr for hw event instr on cpu:%d \n", current->cpu);
+  	a = 0x004300c0;//value to tell event select reg to track instructions
+  	c = 0x186;//event select register corresponding to 0xc1 pcr
+  	__asm__ __volatile__("wrmsr" : : "c" (c), "a" (a));
+}
+//counter can be read from 0xc2 w/ rdmsr
+void enable_cycle_counter(void *info)
+{
+  	unsigned a, c;
+ 	printk(KERN_INFO "cntr wrmsr for hw event cycles on cpu:%d \n", current->cpu);
+  	a = 0x0043003c;//value to tell event select reg to track cycles
+  	c = 0x187;//event select register corresponding to 0xc2 pcr
+  	__asm__ __volatile__("wrmsr" : : "c" (c), "a" (a));
+}
+//END cntr
+
 void cpu_startup_entry(enum cpuhp_state state)
 {
 	/*
@@ -330,6 +353,12 @@ void cpu_startup_entry(enum cpuhp_state state)
 	 * init for the non boot cpus!). Will be fixed in 3.11
 	 */
 #ifdef CONFIG_X86
+	
+	//cntr
+	enable_instruction_counter(NULL);
+	enable_cycle_counter(NULL);
+	//cntr END
+	
 	/*
 	 * If we're the non-boot CPU, nothing set the stack canary up
 	 * for us. The boot CPU already has it initialized but no harm

@@ -91,6 +91,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
+//cntr
+#include <linux/kernel.h>
+//cntr
+
 DEFINE_MUTEX(sched_domains_mutex);
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
@@ -3069,6 +3073,90 @@ unsigned long long task_sched_runtime(struct task_struct *p)
 	return ns;
 }
 
+//cntr
+//function to total up the wasted cycles of all the worst procs of the cpu
+long long get_cpu_total_wasted(int cpu_num)
+{
+	struct rq *the_rq = cpu_rq(cpu_num);
+	long long total = 0;
+	int i;
+	for(i = 0; i < HISTORY_SIZE_CNTR; i++){
+		if(the_rq->worst_procs[i].pid != -1){
+			total += the_rq->worst_procs[i].wasted_cycles;
+		}
+	}
+	the_rq->total_wasted_cycles = total;
+	return total;
+}
+//this method was moved here from later in the file
+/**
+ * find_process_by_pid - find a process with a matching PID value.
+ * @pid: the pid in question.
+ *
+ * The task of @pid, if found. %NULL otherwise.
+ */
+static struct task_struct *find_process_by_pid(pid_t pid)
+{
+	return pid ? find_task_by_vpid(pid) : current;
+}
+
+//set the specified tasks affinity to the cpu with the least wasted cycles
+//returns 0 if successful
+//the task came from the cpu with the most wasted cycles
+long transfer_to_min(int min_cpu_num, pid_t task_to_move, struct rq *rq_max){
+    struct cpumask mask;
+    cpumask_clear(&mask);
+    cpumask_set_cpu(min_cpu_num, &mask);
+    return sched_setaffinity(task_to_move, &mask);
+
+}
+
+//loop through the procs on the cpu with the most wasted cycles and set them to the min cpu
+void balance_min_and_max(int cpu_min, int cpu_max){
+	struct rq *rq_min = cpu_rq(cpu_min);
+	struct rq *rq_max = cpu_rq(cpu_max);
+    long min_wasted_cycles = rq_min->total_wasted_cycles;
+    long max_wasted_cycles = rq_max->total_wasted_cycles;
+    int i = 0;//make sure we only transfer a max of the 10 worst procs
+    while(i < HISTORY_SIZE_CNTR && max_wasted_cycles > min_wasted_cycles){
+		if(rq_max->worst_procs[i].pid > 0){
+			if(transfer_to_min(rq_min->cpu, rq_max->worst_procs[i].pid, rq_max) >= 0){
+				printk_deferred(KERN_INFO "cntr Transfer %d to %d", rq_max->worst_procs[i].pid, rq_min->cpu);
+    			//raw_spin_lock(&rq_max->lock);
+				max_wasted_cycles -=  rq_max->worst_procs[i].wasted_cycles;//should store this above before the transfer//moved to USpace
+				min_wasted_cycles +=  rq_max->worst_procs[i].wasted_cycles;
+    			//raw_spin_unlock(&rq_max->lock);
+			}
+		}	
+		i++;
+    }
+}
+
+//function to do the actual load balancing and move a process
+void ipc_balance(void)
+{
+	int min_cpu = 0;
+	long long min_cpu_wasted_cycles = LLONG_MAX;
+	int max_cpu = 0;
+	long long max_cpu_wasted_cycles = -1;
+	long long cpu_wasted_cycles[NUM_CPUS_CNTR];
+	int i;
+	for(i = 0; i < NUM_CPUS_CNTR; i++){
+		long long wasted = get_cpu_total_wasted(i);
+		cpu_wasted_cycles[i] = wasted;
+		if(wasted < min_cpu_wasted_cycles){
+			min_cpu = i;
+			min_cpu_wasted_cycles = wasted;
+		}
+		if(wasted > max_cpu_wasted_cycles){
+			max_cpu = i;
+			max_cpu_wasted_cycles = wasted;
+		}
+	}
+	balance_min_and_max(min_cpu, max_cpu);
+}
+//cntr END
+
 /*
  * This function gets called by the timer code, with HZ frequency.
  * We call it with interrupts disabled.
@@ -3883,16 +3971,10 @@ struct task_struct *idle_task(int cpu)
 	return cpu_rq(cpu)->idle;
 }
 
-/**
- * find_process_by_pid - find a process with a matching PID value.
- * @pid: the pid in question.
- *
- * The task of @pid, if found. %NULL otherwise.
- */
-static struct task_struct *find_process_by_pid(pid_t pid)
-{
-	return pid ? find_task_by_vpid(pid) : current;
-}
+//cntr
+// this is where find_process_by_pid was moved from
+// it is now earlier in the file
+//cntr END
 
 /*
  * This function initializes the sched_dl_entity of a newly becoming
@@ -4689,6 +4771,10 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 	struct task_struct *p;
 	int retval;
 
+	//cntr
+	struct rq *the_rq;
+	//cntr
+
 	rcu_read_lock();
 
 	p = find_process_by_pid(pid);
@@ -4696,6 +4782,10 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 		rcu_read_unlock();
 		return -ESRCH;
 	}
+
+	//cntr
+	the_rq = task_rq(p);
+	//cntr END
 
 	/* Prevent p going away */
 	get_task_struct(p);
@@ -4769,6 +4859,11 @@ out_free_cpus_allowed:
 	free_cpumask_var(cpus_allowed);
 out_put_task:
 	put_task_struct(p);
+	//cntr
+	if(retval == 0){
+		remove_task_from_worst_procs_given_rq(p->pid, the_rq);
+	}
+	//cntr END
 	return retval;
 }
 
@@ -7543,6 +7638,9 @@ EXPORT_SYMBOL(bit_waitqueue);
 void __init sched_init(void)
 {
 	int i, j;
+	//cntr
+	int my_index;
+	//cntr END
 	unsigned long alloc_size = 0, ptr;
 
 	for (i = 0; i < WAIT_TABLE_SIZE; i++)
@@ -7617,6 +7715,16 @@ void __init sched_init(void)
 		init_cfs_rq(&rq->cfs);
 		init_rt_rq(&rq->rt);
 		init_dl_rq(&rq->dl);
+		//cntr
+		for (my_index = 0; my_index < HISTORY_SIZE_CNTR; my_index++)
+		{
+			rq->worst_procs[i].pid = -1;
+			rq->worst_procs[i].wasted_cycles = -1;
+		}
+		rq->last_rebalance = 0;
+		rq->total_wasted_cycles = 0;
+		printk(KERN_INFO "cntr init rq on cpu %d", rq->cpu);
+		//cntr END
 #ifdef CONFIG_FAIR_GROUP_SCHED
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
 		INIT_LIST_HEAD(&rq->leaf_cfs_rq_list);

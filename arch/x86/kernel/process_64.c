@@ -51,6 +51,12 @@
 #include <asm/vdso.h>
 #include <asm/intel_rdt.h>
 
+//cntr
+#include <linux/random.h>
+#include "../../../kernel/sched/sched.h"
+#include "../../../cntr/CntrDef.h"
+//cntr END
+
 __visible DEFINE_PER_CPU(unsigned long, rsp_scratch);
 
 /* Prints also some state that isn't saved in the pt_regs */
@@ -250,6 +256,26 @@ void compat_start_thread(struct pt_regs *regs, u32 new_ip, u32 new_sp)
 }
 #endif
 
+//cntr
+//functions to read PCRs of the cpu that the function runs on
+//read instructions from 0xc1, corresponding with event select register 0x186
+unsigned long rdpmc_instructions(void)
+{
+  	unsigned a, d, c;
+  	c = 0xc1;
+  	__asm__ __volatile__("rdmsr" : "=a" (a), "=d" (d) : "c" (c));
+   return ((unsigned long)a) | (((unsigned long)d) << 32);;
+}
+//read cycles from oxc2, corresponding to event select register 0x187
+unsigned long rdpmc_cycles(void)
+{
+  	unsigned a, d, c;
+  	c = 0xc2;
+  	__asm__ __volatile__("rdmsr" : "=a" (a), "=d" (d) : "c" (c));
+   return ((unsigned long)a) | (((unsigned long)d) << 32);;
+}
+//cntr END
+
 /*
  *	switch_to(x,y) should switch tasks from x to y.
  *
@@ -263,6 +289,71 @@ void compat_start_thread(struct pt_regs *regs, u32 new_ip, u32 new_sp)
 __visible __notrace_funcgraph struct task_struct *
 __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 {
+	
+	//cntr
+	//grab pcr's from the cpu
+	long instr_count = 0;
+	long cycles_count = 0;
+	instr_count = rdpmc_instructions();
+	cycles_count = rdpmc_cycles();
+
+	//save the history of the counter so that we know its used isntr/cycles when it comes off as prev_p
+	if(fair_policy(next_p->policy && cycles_count != 0 && instr_count != 0) ){
+		next_p->cpu_cycles_saved = cycles_count;
+		next_p->cpu_instructions_saved = instr_count;
+	}
+	if(fair_policy(prev_p->policy)){//only record history for processesses that aren't of a super low priority
+
+		struct rq *the_rq = task_rq(prev_p);//the rq of this cpu
+		int task_in_worst = 0;//is the task already in the worst proc cache
+		int found_empty = 0;//found an empty spot in the cache
+		int empty_index = -1;
+		int looper;
+		int min_i = -1;//the index of the worst proc in rq cache
+		long wasted_cycles;//cycles wasted the last time on the cpu
+		long min_wasted_cycles = -1;//wasted cycles of the least worst proc
+		if(prev_p->cpu_cycles_saved != 0 && prev_p->cpu_instructions_saved != 0){
+			long i = (instr_count - prev_p->cpu_instructions_saved);//instructions completed
+			long c = (cycles_count - prev_p->cpu_cycles_saved);//cycles used
+
+			wasted_cycles = c-i;
+		}else{
+			wasted_cycles = 0;
+		}
+
+		prev_p->avg_wasted_cycles = (prev_p->avg_wasted_cycles + wasted_cycles) >> 2;
+
+		//see if task should be put in as one of the worst for that cpu's rq
+		for(looper = 0; looper < HISTORY_SIZE_CNTR; looper++){//loop thru and see if proc is in cache and also grab the best of the worst procs (least wasted cycles)
+			if(the_rq->worst_procs[looper].pid == prev_p->pid){//if this process is in the cache, stop and update it
+				task_in_worst = 1;
+				break;
+			}else if(the_rq->worst_procs[looper].wasted_cycles == -1){
+				found_empty = 1;
+				empty_index = looper;
+				min_i = looper;//found an empty spot so put the process here
+			}else if(the_rq->worst_procs[looper].wasted_cycles < min_wasted_cycles || looper == 0){
+				//else if we are in the first loop or we found a less bad process, save its index and cycles
+				min_i = looper;
+				min_wasted_cycles = the_rq->worst_procs[looper].wasted_cycles;
+			}
+			
+		}
+
+		if(task_in_worst == 1){//we alrdy had task in worst procs and should update its avg wasted cycles
+			the_rq->worst_procs[looper].wasted_cycles = prev_p->avg_wasted_cycles;
+		}else if(found_empty == 1){
+			the_rq->worst_procs[empty_index].pid = prev_p->pid;
+			the_rq->worst_procs[empty_index].wasted_cycles = prev_p->avg_wasted_cycles;
+		}else if(prev_p->avg_wasted_cycles > min_wasted_cycles){//else we shoud replace the best of the worst with this one
+			the_rq->worst_procs[min_i].pid = prev_p->pid;
+			the_rq->worst_procs[min_i].wasted_cycles = prev_p->avg_wasted_cycles;
+		}
+
+
+	}
+	//cntr END
+
 	struct thread_struct *prev = &prev_p->thread;
 	struct thread_struct *next = &next_p->thread;
 	struct fpu *prev_fpu = &prev->fpu;
