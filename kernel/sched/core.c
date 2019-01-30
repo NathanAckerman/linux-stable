@@ -7723,7 +7723,7 @@ void __init sched_init(void)
 		}
 		rq->last_rebalance = 0;
 		rq->total_wasted_cycles = 0;
-		printk(KERN_INFO "cntr init rq on cpu %d", rq->cpu);
+		//printk(KERN_INFO "cntr init rq on cpu %d", rq->cpu);
 		//cntr END
 #ifdef CONFIG_FAIR_GROUP_SCHED
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
