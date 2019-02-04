@@ -323,9 +323,22 @@ void play_idle(unsigned long duration_ms)
 EXPORT_SYMBOL_GPL(play_idle);
 
 //cntr
+
+
+//will enable reading instr from 0x309 and cycles from 0x30A
+void enable_instr_and_cycles_fixed(void *info)
+{
+  	unsigned a, c;
+ 	printk(KERN_INFO "cntr wrmsr for hw event instr on cpu:%d \n", current->cpu);
+  	a = 0xbb;//tells IA32_FIXED_CTR_CTRL MSR to enable the instructions and cycles
+  	c = 0x38d;
+  	__asm__ __volatile__("wrmsr" : : "c" (c), "a" (a));
+}
+
+
 //enables called on each cpu and enables performance counters
 //done here and not in startup so that they run whenever a cpu wakes up
-//counter can then be read from 0xc1 w/ rdmsr
+//instr counter can then be read from 0xc1 w/ rdmsr
 void enable_instruction_counter(void *info)
 {
   	unsigned a, c;
@@ -334,13 +347,31 @@ void enable_instruction_counter(void *info)
   	c = 0x186;//event select register corresponding to 0xc1 pcr
   	__asm__ __volatile__("wrmsr" : : "c" (c), "a" (a));
 }
-//counter can be read from 0xc2 w/ rdmsr
+//cycle counter can be read from 0xc2 w/ rdmsr
 void enable_cycle_counter(void *info)
 {
   	unsigned a, c;
  	printk(KERN_INFO "cntr wrmsr for hw event cycles on cpu:%d \n", current->cpu);
   	a = 0x0043003c;//value to tell event select reg to track cycles
   	c = 0x187;//event select register corresponding to 0xc2 pcr
+  	__asm__ __volatile__("wrmsr" : : "c" (c), "a" (a));
+}
+//llc refs counter can be read from 0xc3 w/ rdmsr
+void enable_llc_refs_counter(void *info)
+{
+  	unsigned a, c;
+ 	printk(KERN_INFO "cntr wrmsr for hw event llc_ref on cpu:%d \n", current->cpu);
+  	a = 0x00434f2e;//value to tell event select reg to track cycles
+  	c = 0x188;//event select register corresponding to 0xc2 pcr
+  	__asm__ __volatile__("wrmsr" : : "c" (c), "a" (a));
+}
+//llc misses counter can be read from 0xc2 w/ rdmsr
+void enable_llc_misses_counter(void *info)
+{
+  	unsigned a, c;
+ 	printk(KERN_INFO "cntr wrmsr for hw event llc_miss on cpu:%d \n", current->cpu);
+  	a = 0x0043412e;//value to tell event select reg to track cycles
+  	c = 0x189;//event select register corresponding to 0xc2 pcr
   	__asm__ __volatile__("wrmsr" : : "c" (c), "a" (a));
 }
 //END cntr
@@ -355,8 +386,11 @@ void cpu_startup_entry(enum cpuhp_state state)
 #ifdef CONFIG_X86
 	
 	//cntr
-	enable_instruction_counter(NULL);
-	enable_cycle_counter(NULL);
+	//enable_instruction_counter(NULL);
+	//enable_cycle_counter(NULL);
+	enable_instr_and_cycles_fixed(NULL);
+	enable_llc_refs_counter(NULL);
+	enable_llc_misses_counter(NULL);
 	//cntr END
 	
 	/*

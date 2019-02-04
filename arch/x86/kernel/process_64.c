@@ -257,6 +257,24 @@ void compat_start_thread(struct pt_regs *regs, u32 new_ip, u32 new_sp)
 #endif
 
 //cntr
+//read instr from the fixed counter
+unsigned long rdpmc_instr_fixed(void)
+{
+  	unsigned a, d, c;
+  	c = 0x309;
+  	__asm__ __volatile__("rdmsr" : "=a" (a), "=d" (d) : "c" (c));
+   return ((unsigned long)a) | (((unsigned long)d) << 32);;
+}
+
+//read cycles from the fixed counter
+unsigned long rdpmc_cycles_fixed(void)
+{
+  	unsigned a, d, c;
+  	c = 0x30A;
+  	__asm__ __volatile__("rdmsr" : "=a" (a), "=d" (d) : "c" (c));
+   return ((unsigned long)a) | (((unsigned long)d) << 32);;
+}
+
 //functions to read PCRs of the cpu that the function runs on
 //read instructions from 0xc1, corresponding with event select register 0x186
 unsigned long rdpmc_instructions(void)
@@ -266,11 +284,27 @@ unsigned long rdpmc_instructions(void)
   	__asm__ __volatile__("rdmsr" : "=a" (a), "=d" (d) : "c" (c));
    return ((unsigned long)a) | (((unsigned long)d) << 32);;
 }
-//read cycles from oxc2, corresponding to event select register 0x187
+//read cycles from 0xc2, corresponding to event select register 0x187
 unsigned long rdpmc_cycles(void)
 {
   	unsigned a, d, c;
   	c = 0xc2;
+  	__asm__ __volatile__("rdmsr" : "=a" (a), "=d" (d) : "c" (c));
+   return ((unsigned long)a) | (((unsigned long)d) << 32);;
+}
+//read llc refs from 0xc3, corresponding to event select register 0x188
+unsigned long rdpmc_llc_refs(void)
+{
+  	unsigned a, d, c;
+  	c = 0xc3;
+  	__asm__ __volatile__("rdmsr" : "=a" (a), "=d" (d) : "c" (c));
+   return ((unsigned long)a) | (((unsigned long)d) << 32);;
+}
+//read llc misses from 0xc4, corresponding to event select register 0x189
+unsigned long rdmsr_llc_misses(void)
+{
+  	unsigned a, d, c;
+  	c = 0xc4;
   	__asm__ __volatile__("rdmsr" : "=a" (a), "=d" (d) : "c" (c));
    return ((unsigned long)a) | (((unsigned long)d) << 32);;
 }
@@ -294,8 +328,8 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	//grab pcr's from the cpu
 	long instr_count = 0;
 	long cycles_count = 0;
-	instr_count = rdpmc_instructions();
-	cycles_count = rdpmc_cycles();
+	instr_count = rdpmc_instr_fixed();
+	cycles_count = rdpmc_cycles_fixed();
 
 	//save the history of the counter so that we know its used isntr/cycles when it comes off as prev_p
 	if(fair_policy(next_p->policy && cycles_count != 0 && instr_count != 0) ){
